@@ -5,30 +5,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# -----------------------------------------------------------------------------
-# 1. LOCALIZA O CSV MAIS RECENTE EM results_mem_kem
-# -----------------------------------------------------------------------------
 script_dir = os.path.dirname(os.path.abspath(__file__))
 results_dir = os.path.join(script_dir, "results_mem_kem")
 
 if not os.path.isdir(results_dir):
-    raise SystemExit(f"[ERROR] Diretório de resultados não encontrado: {results_dir}")
+    raise SystemExit(f"[ERROR] Results directory not found: {results_dir}")
 
 pattern = os.path.join(results_dir, "results_kem_mem_*.csv")
 csv_files = glob.glob(pattern)
 
 if not csv_files:
-    raise SystemExit(f"[ERROR] Nenhum CSV encontrado com padrão {pattern}")
+    raise SystemExit(f"[ERROR] No CSV files found matching {pattern}")
 
-# Pega o mais recente pelo mtime
 csv_file = max(csv_files, key=os.path.getmtime)
-print(f"[*] Usando CSV mais recente para KEM: {csv_file}")
+print(f"[*] Using newest KEM CSV: {csv_file}")
 
 df = pd.read_csv(csv_file)
 
-# -----------------------------------------------------------------------------
-# 2. DEFINE ALGORITMOS E NOMES (ORDEM: ML-KEM -> HQC -> BIKE -> Frodo)
-# -----------------------------------------------------------------------------
 algorithms_to_plot = [
     "ML-KEM-512", "ML-KEM-768", "ML-KEM-1024",
     "HQC-128", "HQC-192", "HQC-256",
@@ -40,7 +33,6 @@ algorithms_to_plot = [
 
 
 def disp_name(alg: str) -> str:
-    # Usa exatamente o nome do CSV
     return alg
 
 
@@ -50,9 +42,6 @@ title_map = {
     "decaps": "Decapsulação",
 }
 
-# -----------------------------------------------------------------------------
-# 3. UM GRÁFICO POR OPERAÇÃO (MESMO ESTILO DO SEU SCRIPT ORIGINAL)
-# -----------------------------------------------------------------------------
 operations = ["keygen", "encaps", "decaps"]
 
 for op in operations:
@@ -64,7 +53,6 @@ for op in operations:
     stack_high_err = []
     names = []
 
-    # coleta dados por algoritmo nessa operação
     for alg in algorithms_to_plot:
         row = df[(df["algorithm"] == alg) & (df["operation"] == op)]
         if row.empty:
@@ -78,7 +66,6 @@ for op in operations:
         heap_vals.append(heap)
         stack_vals.append(stack)
 
-        # erros assimétricos a partir dos intervalos de confiança
         heap_low = row["maxHeap_ci_low_mb"]
         heap_high = row["maxHeap_ci_high_mb"]
         heap_low_err.append(heap - heap_low)
@@ -100,7 +87,6 @@ for op in operations:
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    # barras com erro (mesmo estilo do script original)
     ax.bar(
         x - width / 2,
         heap_arr,
@@ -138,5 +124,3 @@ for op in operations:
         fname = os.path.join(results_dir, f"{base}.{ext}")
         plt.savefig(fname, dpi=300, bbox_inches="tight")
         print(f"Saved {fname}")
-    # plt.show()  # deixa comentado pra rodar em batch
-

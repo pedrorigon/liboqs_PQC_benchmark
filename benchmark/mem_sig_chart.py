@@ -5,29 +5,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# -----------------------------------------------------------------------------
-# 1. LOCALIZA O CSV MAIS RECENTE EM results_mem_sig
-# -----------------------------------------------------------------------------
 script_dir = os.path.dirname(os.path.abspath(__file__))
 results_dir = os.path.join(script_dir, "results_mem_sig")
 
 if not os.path.isdir(results_dir):
-    raise SystemExit(f"[ERROR] Diretório de resultados não encontrado: {results_dir}")
+    raise SystemExit(f"[ERROR] Results directory not found: {results_dir}")
 
 pattern = os.path.join(results_dir, "results_sig_mem_*.csv")
 csv_files = glob.glob(pattern)
 
 if not csv_files:
-    raise SystemExit(f"[ERROR] Nenhum CSV encontrado com padrão {pattern}")
+    raise SystemExit(f"[ERROR] No CSV files found matching {pattern}")
 
 csv_file = max(csv_files, key=os.path.getmtime)
-print(f"[*] Usando CSV mais recente para SIG: {csv_file}")
+print(f"[*] Using newest SIG CSV: {csv_file}")
 
 df = pd.read_csv(csv_file)
 
-# -----------------------------------------------------------------------------
-# 2. ORDEM E NOMES DOS ALGORITMOS (na ordem do CSV)
-# -----------------------------------------------------------------------------
 algorithms_to_plot = list(df["algorithm"].unique())
 
 
@@ -41,9 +35,6 @@ title_map = {
     "verify": "Verificação",
 }
 
-# -----------------------------------------------------------------------------
-# 3. UM GRÁFICO POR OPERAÇÃO (MESMO ESTILO DO KEM)
-# -----------------------------------------------------------------------------
 operations = ["keygen", "sign", "verify"]
 
 for op in operations:
@@ -126,5 +117,3 @@ for op in operations:
         fname = os.path.join(results_dir, f"{base}.{ext}")
         plt.savefig(fname, dpi=300, bbox_inches="tight")
         print(f"Saved {fname}")
-    # plt.show()
-

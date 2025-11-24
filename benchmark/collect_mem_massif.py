@@ -10,10 +10,6 @@ import sys
 from datetime import datetime
 from typing import List, Tuple, Dict, Any
 
-# -----------------------------
-# Listas de algoritmos
-# -----------------------------
-
 KEM_ALGS: List[str] = [
     "ML-KEM-512",
     "ML-KEM-768",
@@ -54,33 +50,29 @@ SIG_ALGS: List[str] = [
     "SPHINCS+-SHAKE-256s-simple",
 ]
 
-# -----------------------------
-# Args / utilitários
-# -----------------------------
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Coleta uso de memória (heap/stack) via Valgrind Massif para "
-            "test_kem_mem ou test_sig_mem, com N execuções por algoritmo/operação, "
-            "remoção de outliers por IQR e cálculo de média/std/IC 95%% t-Student."
+            "Collects heap/stack usage with Valgrind Massif for test_kem_mem or test_sig_mem, "
+            "runs N times per algorithm/operation, removes outliers with IQR, and computes "
+            "mean/std/95% confidence interval (t-Student)."
         )
     )
     parser.add_argument(
         "binary",
-        help="Caminho para o executável test_kem_mem ou test_sig_mem",
+        help="Path to the test_kem_mem or test_sig_mem executable",
     )
     parser.add_argument(
         "-n",
         "--num-runs",
         type=int,
         default=20,
-        help="Número de repetições por algoritmo/operação (default: 20)",
+        help="Number of repetitions per algorithm/operation (default: 20)",
     )
     parser.add_argument(
         "--alg",
         type=str,
-        help="Rodar somente um algoritmo específico (nome liboqs)",
+        help="Run only a specific algorithm (liboqs name)",
     )
     return parser.parse_args()
 
@@ -91,12 +83,8 @@ def get_script_dir() -> str:
     return os.getcwd()
 
 
-# -----------------------------
-# Estatística: t crítico 95%
-# -----------------------------
-
 def t_critical_95(df: int) -> float:
-    """t crítico bicaudal 95% (alpha=0.05)."""
+    """Two-tailed 95% t critical value (alpha=0.05)."""
     if df <= 1:
         return 0.0
 
@@ -138,11 +126,11 @@ def t_critical_95(df: int) -> float:
         return 2.021
     if df <= 60:
         return 2.000
-    return 1.960  # aproximação normal
+    return 1.960
 
 
 def summary_with_ci(values: List[float]) -> Dict[str, float]:
-    """Retorna dict com mean, std, ci_low, ci_high (IC 95% t-Student)."""
+    """Return mean, std, ci_low, ci_high (95% CI, t-Student)."""
     n = len(values)
     mean = stats.mean(values)
     if n < 2:
@@ -153,7 +141,7 @@ def summary_with_ci(values: List[float]) -> Dict[str, float]:
             "ci_high": mean,
         }
 
-    s = stats.stdev(values)  # desvio padrão amostral
+    s = stats.stdev(values)
     df = n - 1
     t = t_critical_95(df)
     margin = t * s / (n ** 0.5)
@@ -165,12 +153,8 @@ def summary_with_ci(values: List[float]) -> Dict[str, float]:
     }
 
 
-# -----------------------------
-# IQR / remoção de outliers
-# -----------------------------
-
 def iqr_mask(values: List[float]) -> List[bool]:
-    """Máscara booleana indicando quais valores NÃO são outliers via IQR."""
+    """Boolean mask indicating which values are kept after IQR filtering."""
     n = len(values)
     if n < 4:
         return [True] * n
@@ -182,19 +166,11 @@ def iqr_mask(values: List[float]) -> List[bool]:
     return [(lower <= v <= upper) for v in values]
 
 
-# -----------------------------
-# Massif parsing
-# -----------------------------
-
 def parse_ms_print_output(ms_output: str) -> Tuple[int, int, int, int, int]:
-    """
-    Extrai (insts, maxBytes, maxHeap, extHeap, maxStack) do snapshot de pico
-    do ms_print, usando lógica equivalente ao run_mem.py original.
-    """
+    """Extract peak snapshot metrics (insts, maxBytes, maxHeap, extHeap, maxStack) from ms_print output."""
     lines = ms_output.splitlines()
     peak_index = -1
 
-    # Descobrir qual snapshot é o 'peak'
     for line in lines:
         if line.startswith(" Detailed snapshots: ["):
             m = re.search(r"(\d+)\s+\(peak\)", line)
@@ -203,9 +179,8 @@ def parse_ms_print_output(ms_output: str) -> Tuple[int, int, int, int, int]:
                 break
 
     if peak_index < 0:
-        raise RuntimeError("Não foi possível localizar o snapshot de pico em ms_print.")
+        raise RuntimeError("Could not find peak snapshot in ms_print output.")
 
-    # Encontrar a linha do snapshot de pico
     peak_line = None
     prefix = f"{peak_index:>3d}"
     for line in lines:
@@ -214,13 +189,11 @@ def parse_ms_print_output(ms_output: str) -> Tuple[int, int, int, int, int]:
             break
 
     if peak_line is None:
-        raise RuntimeError("Linha do snapshot de pico não encontrada em ms_print.")
+        raise RuntimeError("Peak snapshot line not found in ms_print output.")
 
-    # Remover vírgulas e dividir em colunas
     tokens = peak_line.replace(",", "").split()
-    # tokens = [snap_id, time(i), total(B), useful-heap(B), extra-heap(B), stacks(B)]
     if len(tokens) < 6:
-        raise RuntimeError(f"Formato inesperado da linha de snapshot: {peak_line}")
+        raise RuntimeError(f"Unexpected snapshot line format: {peak_line}")
 
     values = list(map(int, tokens[1:6]))
     insts, maxBytes, maxHeap, extHeap, maxStack = values
@@ -228,10 +201,6 @@ def parse_ms_print_output(ms_output: str) -> Tuple[int, int, int, int, int]:
 
 
 def run_massif_once(binary: str, alg: str, op_code: int, workdir: str) -> Dict[str, int]:
-    """
-    Executa uma vez o binário sob valgrind/massif e retorna um dict com:
-    insts, maxBytes, maxHeap, extHeap, maxStack (em bytes / instruções).
-    """
     massif_out = os.path.join(workdir, "valgrind-out")
 
     cmd = [
@@ -252,15 +221,14 @@ def run_massif_once(binary: str, alg: str, op_code: int, workdir: str) -> Dict[s
 
     if proc.returncode != 0:
         print(
-            f"[ERROR] Valgrind/Massif falhou para {alg}, op={op_code}, "
-            f"retcode={proc.returncode}",
+            f"[ERROR] Valgrind/Massif failed for {alg}, op={op_code}, "
+            f"return code={proc.returncode}",
             file=sys.stderr,
         )
         print(proc.stdout, file=sys.stderr)
         print(proc.stderr, file=sys.stderr)
-        raise RuntimeError("Falha ao executar valgrind/massif.")
+        raise RuntimeError("Failed to execute valgrind/massif.")
 
-    # Rodar ms_print no arquivo gerado
     proc2 = subprocess.run(
         ["ms_print", massif_out],
         cwd=workdir,
@@ -270,13 +238,13 @@ def run_massif_once(binary: str, alg: str, op_code: int, workdir: str) -> Dict[s
 
     if proc2.returncode != 0:
         print(
-            f"[ERROR] ms_print falhou para {alg}, op={op_code}, "
-            f"retcode={proc2.returncode}",
+            f"[ERROR] ms_print failed for {alg}, op={op_code}, "
+            f"return code={proc2.returncode}",
             file=sys.stderr,
         )
         print(proc2.stdout, file=sys.stderr)
         print(proc2.stderr, file=sys.stderr)
-        raise RuntimeError("Falha ao executar ms_print.")
+        raise RuntimeError("Failed to execute ms_print.")
 
     insts, maxBytes, maxHeap, extHeap, maxStack = parse_ms_print_output(proc2.stdout)
     return {
@@ -288,10 +256,6 @@ def run_massif_once(binary: str, alg: str, op_code: int, workdir: str) -> Dict[s
     }
 
 
-# -----------------------------
-# Main
-# -----------------------------
-
 def main() -> None:
     args = parse_args()
     script_dir = get_script_dir()
@@ -300,10 +264,9 @@ def main() -> None:
     binary_name = os.path.basename(binary_path)
 
     if not os.path.isfile(binary_path):
-        print(f"[ERROR] Binário não encontrado: {binary_path}", file=sys.stderr)
+        print(f"[ERROR] Binary not found: {binary_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Detecta se é KEM ou SIG pelo nome do binário
     if "kem" in binary_name.lower():
         mode = "kem"
         alg_list = KEM_ALGS
@@ -320,18 +283,17 @@ def main() -> None:
         json_prefix = "results_sig_mem_"
     else:
         print(
-            "[ERROR] Não consegui inferir se é KEM ou SIG pelo nome do binário. "
-            "O nome deve conter 'kem' ou 'sig'.",
+            "[ERROR] Could not infer KEM or SIG from binary name. "
+            "The name must contain 'kem' or 'sig'.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    # Decide quais algoritmos rodar
     if args.alg:
         if args.alg not in alg_list:
             print(
-                f"[ERROR] Algoritmo '{args.alg}' não está na lista para {mode}.\n"
-                f"Válidos: {', '.join(alg_list)}",
+                f"[ERROR] Algorithm '{args.alg}' is not valid for {mode}.\n"
+                f"Valid: {', '.join(alg_list)}",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -345,11 +307,10 @@ def main() -> None:
     json_path = os.path.join(results_dir, f"{json_prefix}{ts}.json")
 
     print(
-        f"[*] Modo={mode}, binário={binary_name}, num_runs={args.num_runs}, "
+        f"[*] mode={mode}, binary={binary_name}, num_runs={args.num_runs}, "
         f"algorithms={algorithms}"
     )
 
-    # Estrutura do JSON
     json_data: Dict[str, Any] = {
         "binary": binary_name,
         "mode": mode,
@@ -358,7 +319,6 @@ def main() -> None:
         "results": {},
     }
 
-    # CSV: uma linha por (algoritmo, operação)
     fieldnames = [
         "algorithm",
         "operation",
@@ -399,22 +359,19 @@ def main() -> None:
             extHeap_vals: List[float] = []
             maxStack_vals: List[float] = []
 
-            # Coleta bruta
             for _ in range(args.num_runs):
                 res = run_massif_once(binary_path, alg, op_code, binary_dir)
                 insts_vals.append(float(res["insts"]))
-                maxBytes_vals.append(float(res["maxBytes"]) / (1024.0 * 1024.0))  # MB
-                maxHeap_vals.append(float(res["maxHeap"]) / (1024.0 * 1024.0))    # MB
-                extHeap_vals.append(float(res["extHeap"]) / (1024.0 * 1024.0))    # MB
-                maxStack_vals.append(float(res["maxStack"]) / (1024.0 * 1024.0))  # MB
+                maxBytes_vals.append(float(res["maxBytes"]) / (1024.0 * 1024.0))
+                maxHeap_vals.append(float(res["maxHeap"]) / (1024.0 * 1024.0))
+                extHeap_vals.append(float(res["extHeap"]) / (1024.0 * 1024.0))
+                maxStack_vals.append(float(res["maxStack"]) / (1024.0 * 1024.0))
 
             n_raw = len(insts_vals)
 
-            # Remoção de outliers usando maxBytes (total) como referência
             mask = iqr_mask(maxBytes_vals)
             n_filt = sum(mask)
             if n_filt < 3:
-                # Se o filtro comeu demais, usa dados brutos
                 mask = [True] * n_raw
                 n_filt = n_raw
 
@@ -424,14 +381,12 @@ def main() -> None:
             extHeap_f = [v for v, keep in zip(extHeap_vals, mask) if keep]
             maxStack_f = [v for v, keep in zip(maxStack_vals, mask) if keep]
 
-            # Resumos estatísticos
             insts_s = summary_with_ci(insts_f)
             maxBytes_s = summary_with_ci(maxBytes_f)
             maxHeap_s = summary_with_ci(maxHeap_f)
             extHeap_s = summary_with_ci(extHeap_f)
             maxStack_s = summary_with_ci(maxStack_f)
 
-            # Preenche JSON: lista bruta + summary
             json_data["results"][alg][op_name] = {
                 "raw": {
                     "insts": insts_vals,
@@ -451,7 +406,6 @@ def main() -> None:
                 },
             }
 
-            # Linha para o CSV
             row = {
                 "algorithm": alg,
                 "operation": op_name,
@@ -480,20 +434,17 @@ def main() -> None:
             }
             rows.append(row)
 
-    # Salva CSV
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
-    # Salva JSON
     with open(json_path, "w") as jf:
         json.dump(json_data, jf, indent=2)
 
-    print(f"[OK] CSV salvo em:  {csv_path}")
-    print(f"[OK] JSON salvo em: {json_path}")
+    print(f"[OK] CSV saved to:  {csv_path}")
+    print(f"[OK] JSON saved to: {json_path}")
 
 
 if __name__ == "__main__":
     main()
-

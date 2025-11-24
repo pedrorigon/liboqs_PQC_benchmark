@@ -13,10 +13,9 @@ from typing import Dict, List, Tuple, Any
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Roda coleta de memória (Valgrind Massif) para TODOS os KEM e "
-            "TODAS as SIG usando collect_mem_massif.py.\n"
-            "Agora: faz N execuções independentes (cada uma com -n 1) e, ao final, "
-            "agrega os N CSVs em um único CSV final com média, std, IQR e IC 95%."
+            "Run memory collection (Valgrind Massif) for all KEM and SIG algorithms using collect_mem_massif.py. "
+            "Performs N independent executions (each with -n 1) and aggregates the CSVs into one file with mean, "
+            "std, IQR filtering, and 95% confidence intervals."
         )
     )
     parser.add_argument(
@@ -24,7 +23,7 @@ def parse_args() -> argparse.Namespace:
         "--num-runs",
         type=int,
         default=20,
-        help="Número de execuções independentes (repetições) por algoritmo/operação (default: 20)",
+        help="Number of independent executions per algorithm/operation (default: 20)",
     )
     return parser.parse_args()
 
@@ -35,14 +34,8 @@ def get_script_dir() -> str:
     return os.getcwd()
 
 
-# ----------------------------------------------------------------------
-# Mesmas funções estatísticas usadas em collect_mem_massif.py
-# (copiadas para manter o mesmo comportamento de IQR + IC 95% t-Student)
-# ----------------------------------------------------------------------
-
-
 def t_critical_95(df: int) -> float:
-    """t crítico bicaudal 95% (alpha=0.05)."""
+    """Two-tailed 95% t critical value (alpha=0.05)."""
     if df <= 1:
         return 0.0
 
@@ -84,11 +77,11 @@ def t_critical_95(df: int) -> float:
         return 2.021
     if df <= 60:
         return 2.000
-    return 1.960  # aproximação normal
+    return 1.960
 
 
 def summary_with_ci(values: List[float]) -> Dict[str, float]:
-    """Retorna dict com mean, std, ci_low, ci_high (IC 95% t-Student)."""
+    """Return mean, std, ci_low, ci_high (95% CI, t-Student)."""
     n = len(values)
     mean = stats.mean(values)
     if n < 2:
@@ -99,7 +92,7 @@ def summary_with_ci(values: List[float]) -> Dict[str, float]:
             "ci_high": mean,
         }
 
-    s = stats.stdev(values)  # desvio padrão amostral
+    s = stats.stdev(values)
     df = n - 1
     t = t_critical_95(df)
     margin = t * s / (n ** 0.5)
@@ -112,7 +105,7 @@ def summary_with_ci(values: List[float]) -> Dict[str, float]:
 
 
 def iqr_mask(values: List[float]) -> List[bool]:
-    """Máscara booleana indicando quais valores NÃO são outliers via IQR."""
+    """Boolean mask indicating which values are kept after IQR filtering."""
     n = len(values)
     if n < 4:
         return [True] * n
@@ -124,39 +117,28 @@ def iqr_mask(values: List[float]) -> List[bool]:
     return [(lower <= v <= upper) for v in values]
 
 
-# ----------------------------------------------------------------------
-# Agregação dos N CSVs "brutos" em um único CSV final (KEM ou SIG)
-# ----------------------------------------------------------------------
-
-
 def aggregate_mem_results(results_dir: str, prefix: str, num_runs: int) -> None:
     """
-    Lê os N CSVs mais recentes em results_dir com nome prefix*.csv,
-    trata cada linha (algorithm, operation) como uma amostra independente,
-    aplica:
-      - remoção de outliers (IQR) usando maxBytes como referência,
-      - média, std e IC 95% t-Student
-    e escreve um novo CSV final com o MESMO formato do collect_mem_massif.py,
-    apagando os CSV/JSON temporários usados.
+    Read the N most recent CSVs in results_dir matching prefix*.csv, treat each line
+    (algorithm, operation) as an independent sample, filter outliers via IQR using
+    maxBytes as reference, compute mean/std/95% CI, and write a final CSV matching
+    the collect_mem_massif.py format while removing the temporary CSV/JSON files.
     """
     pattern = os.path.join(results_dir, f"{prefix}*.csv")
     csv_files = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
 
     if not csv_files:
-        print(f"[WARN] Nenhum CSV encontrado em {results_dir} com prefixo {prefix}, nada para agregar.")
+        print(f"[WARN] No CSV files found in {results_dir} with prefix {prefix}; nothing to aggregate.")
         return
 
-    # Usa os N mais recentes (ou menos, se não houver N)
     used_files = csv_files[:num_runs]
     if len(used_files) < num_runs:
         print(
-            f"[WARN] Foram encontrados apenas {len(used_files)} CSVs, "
-            f"mas num_runs={num_runs}. Usando todos os disponíveis."
+            f"[WARN] Found only {len(used_files)} CSVs but num_runs={num_runs}. Using all available files."
         )
 
-    print(f"[*] Agregando {len(used_files)} CSV(s) em {results_dir} (prefixo={prefix})")
+    print(f"[*] Aggregating {len(used_files)} CSV(s) in {results_dir} (prefix={prefix})")
 
-    # data[(alg, op)] = dict de listas
     data: Dict[Tuple[str, str], Dict[str, List[float]]] = {}
 
     for fpath in used_files:
@@ -176,14 +158,12 @@ def aggregate_mem_results(results_dir: str, prefix: str, num_runs: int) -> None:
                     }
 
                 d = data[key]
-                # Cada CSV (rodado com -n 1) traz uma única amostra em *_mean_mb
                 d["insts"].append(float(row["insts_mean"]))
                 d["maxBytes"].append(float(row["maxBytes_mean_mb"]))
                 d["maxHeap"].append(float(row["maxHeap_mean_mb"]))
                 d["extHeap"].append(float(row["extHeap_mean_mb"]))
                 d["maxStack"].append(float(row["maxStack_mean_mb"]))
 
-    # Preparar linhas agregadas
     fieldnames = [
         "algorithm",
         "operation",
@@ -213,7 +193,6 @@ def aggregate_mem_results(results_dir: str, prefix: str, num_runs: int) -> None:
 
     rows: List[Dict[str, Any]] = []
 
-    # Ordena por algoritmo / operação só para deixar o CSV estável
     for (alg, op), metrics in sorted(data.items(), key=lambda x: (x[0][0], x[0][1])):
         maxBytes_vals = metrics["maxBytes"]
         n_raw = len(maxBytes_vals)
@@ -267,7 +246,6 @@ def aggregate_mem_results(results_dir: str, prefix: str, num_runs: int) -> None:
         }
         rows.append(row)
 
-    # Salva CSV final agregado
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     final_csv = os.path.join(results_dir, f"{prefix}{ts}.csv")
 
@@ -277,37 +255,29 @@ def aggregate_mem_results(results_dir: str, prefix: str, num_runs: int) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"[OK] CSV agregado final salvo em: {final_csv}")
+    print(f"[OK] Aggregated CSV saved to: {final_csv}")
 
-    # Remove CSV/JSON temporários usados
     for fpath in used_files:
         try:
-            base = os.path.splitext(os.path.basename(fpath))[0]  # ex: results_kem_mem_20251123_075913
+            base = os.path.splitext(os.path.basename(fpath))[0]
             json_path = os.path.join(results_dir, base + ".json")
             os.remove(fpath)
             if os.path.exists(json_path):
                 os.remove(json_path)
         except OSError as e:
-            print(f"[WARN] Não foi possível remover temporário {fpath}: {e}")
+            print(f"[WARN] Could not remove temporary file {fpath}: {e}")
 
-    print("[OK] CSV/JSON temporários removidos.")
-
-
-# ----------------------------------------------------------------------
-# Execução dos binários test_kem_mem e test_sig_mem N vezes (cada uma -n 1)
-# ----------------------------------------------------------------------
+    print("[OK] Temporary CSV/JSON files removed.")
 
 
 def run_collect(script_dir: str, binary_name: str, num_runs: int) -> None:
     """
-    Para o binário indicado (test_kem_mem ou test_sig_mem):
-      - roda collect_mem_massif.py num_runs vezes, cada vez com -n 1
-      - em seguida agrega os num_runs CSVs gerados em um único CSV final.
+    For the given binary (test_kem_mem or test_sig_mem):
+      - run collect_mem_massif.py num_runs times, each with -n 1
+      - aggregate the generated CSVs into a single final CSV.
     """
-    # Projeto raiz = um nível acima de benchmark/
     project_root = os.path.abspath(os.path.join(script_dir, os.pardir))
 
-    # Binários em liboqs/build/tests
     binary_path = os.path.join(
         project_root,
         "liboqs",
@@ -317,15 +287,14 @@ def run_collect(script_dir: str, binary_name: str, num_runs: int) -> None:
     )
 
     if not os.path.isfile(binary_path):
-        print(f"[WARN] Binário não encontrado, pulando: {binary_path}")
+        print(f"[WARN] Binary not found, skipping: {binary_path}")
         return
 
     collect_script = os.path.join(script_dir, "collect_mem_massif.py")
     if not os.path.isfile(collect_script):
-        print(f"[ERROR] collect_mem_massif.py não encontrado em {script_dir}")
+        print(f"[ERROR] collect_mem_massif.py not found in {script_dir}")
         sys.exit(1)
 
-    # Descobre diretório de resultados e prefixo de arquivo dependendo se é KEM ou SIG
     if "kem" in binary_name.lower():
         results_dir = os.path.join(script_dir, "results_mem_kem")
         prefix = "results_kem_mem_"
@@ -336,34 +305,31 @@ def run_collect(script_dir: str, binary_name: str, num_runs: int) -> None:
         mode = "SIG"
     else:
         print(
-            f"[ERROR] Não consegui inferir se {binary_name} é KEM ou SIG (nome não contém 'kem' ou 'sig').",
+            f"[ERROR] Could not infer whether {binary_name} is KEM or SIG (name must contain 'kem' or 'sig').",
             file=sys.stderr,
         )
         sys.exit(1)
 
     os.makedirs(results_dir, exist_ok=True)
 
-    # 1) Rodar N vezes o collect_mem_massif, cada vez com -n 1
     for i in range(num_runs):
         cmd = [
             sys.executable,
             collect_script,
-            binary_path,  # argumento posicional "binary"
+            binary_path,
             "-n",
             "1",
         ]
-        print(f"[*] ({mode}) Execução {i+1}/{num_runs}: {' '.join(cmd)}")
+        print(f"[*] ({mode}) Run {i+1}/{num_runs}: {' '.join(cmd)}")
         proc = subprocess.run(cmd, cwd=script_dir)
         if proc.returncode != 0:
             print(
-                f"[ERROR] collect_mem_massif.py falhou para {binary_name} "
-                f"na execução {i+1} com código {proc.returncode}",
+                f"[ERROR] collect_mem_massif.py failed for {binary_name} "
+                f"on run {i+1} with code {proc.returncode}",
                 file=sys.stderr,
             )
-            # se falhar, não tenta agregar
             return
 
-    # 2) Agregar os N CSVs produzidos em um único CSV final
     aggregate_mem_results(results_dir, prefix, num_runs)
 
 
@@ -371,17 +337,14 @@ def main() -> None:
     args = parse_args()
     script_dir = get_script_dir()
 
-    # 1) KEM
     print("\n=== KEM: test_kem_mem ===")
     run_collect(script_dir, "test_kem_mem", args.num_runs)
 
-    # 2) SIG
     print("\n=== SIG: test_sig_mem ===")
     run_collect(script_dir, "test_sig_mem", args.num_runs)
 
-    print("\n[OK] Execução completa de KEM e SIG (memória) com agregação por N execuções.")
+    print("\n[OK] Completed KEM and SIG memory runs with aggregation.")
 
 
 if __name__ == "__main__":
     main()
-
