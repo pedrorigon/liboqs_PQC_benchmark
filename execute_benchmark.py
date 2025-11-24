@@ -227,7 +227,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             "Complete liboqs benchmark pipeline: speed (KEM/SIG), "
-            "memory (Massif) and memory charts, with CPU isolation "
+            "memory (Massif), charts and LaTeX tables, with CPU isolation "
             "during the measurement phase."
         )
     )
@@ -308,6 +308,21 @@ def main():
         run_cmd(
             [
                 sys.executable,
+                os.path.join(bench_dir, "speed_kem_table_tex.py"),
+            ],
+            cwd=bench_dir,
+        )
+        run_cmd(
+            [
+                sys.executable,
+                os.path.join(bench_dir, "speed_sig_table_tex.py"),
+            ],
+            cwd=bench_dir,
+        )
+
+        run_cmd(
+            [
+                sys.executable,
                 os.path.join(bench_dir, "run_all_mem_bench.py"),
                 "-n",
                 str(args.num_runs),
@@ -324,7 +339,7 @@ def main():
             cwd=bench_dir,
         )
 
-        print("\n[OK] Full pipeline (speed + memory + charts) completed.")
+        print("\n[OK] Full pipeline (speed + memory + charts + LaTeX tables) completed.")
     finally:
         restore_benchmark_cpu_mode(cpu_state)
         fix_permissions_for_sudo_user(root_dir)
