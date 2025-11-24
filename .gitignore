@@ -1,0 +1,8 @@
+liboqs/*
+*.pyc
+*.pdf
+*.csv
+*.png
+*.svg
+*.json
+.venv
